@@ -1,0 +1,105 @@
+---
+title: "Testing and Developing diplomix"
+output: html_notebook
+---
+
+
+## Simulation Function
+
+We need to simulate some data to see how well we can recover this stuff.
+
+```{r}
+library(tidyverse)
+library(tetradiplomix)
+```
+
+We pass it a vector of ancestral allele freqs and an F value and then we use the
+Nicholson model to simulate new values.
+```{r}
+#' Simulate tetraploid data that is a mixture of two diverging loci
+#' 
+#' @param a vector an ancestral frequencies/weights of alleles
+#' @param F drift parameter
+#' @param N number of individuals
+simdiplomix <- function(a, F, N) {
+  
+  # simulate the zeds for each indvidual randomly
+  zm <- zed_matrix()
+  zim <- zm[sample(1:nrow(zm), size = N, replace = TRUE), ]
+  
+  # simulate the allele freqs
+  an <- a / sum(a)
+  
+  a0 <- rgamma(n = length(a), shape = an * (1 - F) / F, scale = 1)
+  a0 <- a0 / sum(a0)
+  
+  a1 <- rgamma(n = length(a), shape = an * (1 - F) / F, scale = 1)
+  a1 <- a1 / sum(a1)
+  
+  # sample them into the individuals
+  G <- matrix(0, nrow = N, ncol = 4)
+  
+  n0 <- sum(zim == 0)
+  n1 <- sum(zim == 1)
+  
+  G[zim == 0] <- sample(x = 0:(length(a) - 1), size = n0, replace = TRUE, prob = a0)
+  G[zim == 1] <- sample(x = 0:(length(a) - 1), size = n1, replace = TRUE, prob = a1)
+  
+  list(G = G, p = rbind(a0, a1), zim = zim)
+}
+```
+
+Now that we have that, we can easily simulate 96 individuals at a tetraploid locus
+that behaves like two diploid loci with Fst of about 2 * 0.03 and 5 alleles
+```{r}
+Gsim <- simdiplomix(a = 5:1, F = 0.03, N = 96)
+```
+
+
+
+## Testing update_zim
+
+I want to simulate some things that are very diverged and check to make sure
+that we have things mostly right...
+
+```{r}
+test <- simdiplomix(a = 5:1, F = 0.4, N = 96)
+p <- rbind(test$a0, test$a1)
+zm <- zed_matrix()
+zim <- matrix(0, nrow = nrow(test$zim), ncol = ncol(test$zim))
+
+
+boing <- update_zim(test$G, zim, zm, p)
+
+# note that most of these are TRUE, so I think we have it right.
+test$zim == boing
+```
+
+
+## Now, run diplomix through its paces
+
+I have completed the coding for the function `diplomix()` and it seems to be 
+working well.  Now I am going to do a little experiment: I will simulate
+data at different Fst values and then run it through `diplomix()` and assess
+the trace of the Fst value.
+```{r}
+Ftrue <- c(0.01, 0.02, 0.03, 0.05, 0.1, 0.2) 
+names(Ftrue) <- Ftrue
+
+simout <- lapply(Ftrue, function(x) {
+  lapply(1:10, function(y) {
+    inp <- simdiplomix(a = 5:1, F = x, N = 96)
+    out <- diplomix(inp$G, 500)
+    tibble(rep = y, iter = 1:500, fst_trace = fst_from_ptrace(out$ptrace))
+  }) %>%
+    bind_rows()
+}) %>% 
+  bind_rows(.id = "sim_F")
+```
+
+Now we can make a massive fact plot of all that:
+```{r}
+ggplot(simout, aes(x = iter, y = fst_trace, group = rep)) +
+  geom_line() +
+  facet_wrap(~ sim_F, ncol = 3)
+```
