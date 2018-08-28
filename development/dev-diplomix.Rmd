@@ -60,7 +60,7 @@ Gsim <- simdiplomix(a = 5:1, F = 0.03, N = 96)
 ## Testing update_zim
 
 I want to simulate some things that are very diverged and check to make sure
-that we have things mostly right...
+that we have things mostly right...(hmmm...)
 
 ```{r}
 test <- simdiplomix(a = 5:1, F = 0.4, N = 96)
